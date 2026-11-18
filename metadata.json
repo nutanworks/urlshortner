@@ -1,0 +1,6 @@
+{
+  "name": "Short.ly — Distributed URL Shortener",
+  "description": "A distributed URL shortener with Base62 encoding, sharded SQLite storage (A-M / N-Z), in-memory Redis cache simulation, 3-node Round-Robin load balancing, QR codes, and real-time analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
