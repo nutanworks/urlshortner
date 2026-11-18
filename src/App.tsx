@@ -35,43 +35,74 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const urlInputRef = useRef<HTMLInputElement | null>(null);
+  const lastRefreshRef = useRef<number>(0);
+
+  const fetchGetWithRetry = useCallback(
+    async <T,>(url: string, retries = 2): Promise<T | null> => {
+      for (let attempt = 0; attempt <= retries; attempt += 1) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) return null;
+          return (await res.json()) as T;
+        } catch {
+          if (attempt === retries) {
+            return null;
+          }
+          await new Promise((resolve) =>
+            setTimeout(resolve, 350 * (attempt + 1)),
+          );
+        }
+      }
+      return null;
+    },
+    [],
+  );
 
   const fetchLinksAndCluster = useCallback(async () => {
     try {
-      const res = await fetch('/api/links');
-      if (!res.ok) return;
-      const data = (await res.json()) as {
+      const data = await fetchGetWithRetry<{
         links: ShortLinkRecord[];
         cluster: ClusterState;
-      };
+      }>('/api/links');
+      if (!data) return;
       setLinks(data.links);
       setCluster(data.cluster);
+      lastRefreshRef.current = Date.now();
+    } catch {
+      // Handled gracefully without unhandled promise rejection
     } finally {
       setIsLoadingLinks(false);
     }
-  }, []);
+  }, [fetchGetWithRetry]);
 
   const fetchAnalytics = useCallback(async () => {
     try {
-      const res = await fetch('/api/analytics');
-      if (!res.ok) return;
-      const data = (await res.json()) as {
+      const data = await fetchGetWithRetry<{
         analytics: AnalyticsSummary;
         cluster: ClusterState;
-      };
+      }>('/api/analytics');
+      if (!data) return;
       setAnalytics(data.analytics);
       setCluster(data.cluster);
+      lastRefreshRef.current = Date.now();
+    } catch {
+      // Handled gracefully without unhandled promise rejection
     } finally {
       setIsLoadingAnalytics(false);
     }
-  }, []);
+  }, [fetchGetWithRetry]);
 
   const refreshClusterOnly = useCallback(async () => {
-    const res = await fetch('/api/cluster');
-    if (!res.ok) return;
-    const data = (await res.json()) as { cluster: ClusterState };
-    setCluster(data.cluster);
-  }, []);
+    try {
+      const data = await fetchGetWithRetry<{ cluster: ClusterState }>(
+        '/api/cluster',
+      );
+      if (!data) return;
+      setCluster(data.cluster);
+    } catch {
+      // Handled gracefully without unhandled promise rejection
+    }
+  }, [fetchGetWithRetry]);
 
   useEffect(() => {
     void fetchLinksAndCluster();
@@ -81,6 +112,9 @@ export default function App() {
   // Refresh state when user returns from opening a 301 redirect in another tab
   useEffect(() => {
     function handleFocus() {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastRefreshRef.current < 2000) return;
+      lastRefreshRef.current = Date.now();
       void fetchLinksAndCluster();
       void fetchAnalytics();
     }
@@ -151,61 +185,77 @@ export default function App() {
   }
 
   async function handleSimulateLookup(shortCode: string) {
-    const res = await fetch(`/api/simulate/${encodeURIComponent(shortCode)}`, {
-      method: 'POST',
-    });
-    if (!res.ok) return;
-    const data = (await res.json()) as {
-      link: ShortLinkRecord;
-      trace: RequestTrace;
-      cluster: ClusterState;
-    };
+    try {
+      const res = await fetch(`/api/simulate/${encodeURIComponent(shortCode)}`, {
+        method: 'POST',
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        link: ShortLinkRecord;
+        trace: RequestTrace;
+        cluster: ClusterState;
+      };
 
-    setLatestTrace(data.trace);
-    setCluster(data.cluster);
-    setLatestLink((prev) =>
-      prev?.shortCode === data.link.shortCode ? data.link : prev,
-    );
-    setLinks((prev) =>
-      prev.map((item) =>
-        item.shortCode === data.link.shortCode ? data.link : item,
-      ),
-    );
-    void fetchAnalytics();
+      setLatestTrace(data.trace);
+      setCluster(data.cluster);
+      setLatestLink((prev) =>
+        prev?.shortCode === data.link.shortCode ? data.link : prev,
+      );
+      setLinks((prev) =>
+        prev.map((item) =>
+          item.shortCode === data.link.shortCode ? data.link : item,
+        ),
+      );
+      void fetchAnalytics();
+    } catch {
+      setErrorMessage('Unable to reach server to simulate redirect lookup.');
+    }
   }
 
   async function handleDelete(shortCode: string) {
-    const res = await fetch(`/api/links/${encodeURIComponent(shortCode)}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) return;
-    const data = (await res.json()) as {
-      cluster: ClusterState;
-      trace: RequestTrace;
-    };
-    setCluster(data.cluster);
-    setLatestTrace(data.trace);
-    setLinks((prev) => prev.filter((item) => item.shortCode !== shortCode));
-    setLatestLink((prev) => (prev?.shortCode === shortCode ? null : prev));
-    void fetchAnalytics();
+    try {
+      const res = await fetch(`/api/links/${encodeURIComponent(shortCode)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        cluster: ClusterState;
+        trace: RequestTrace;
+      };
+      setCluster(data.cluster);
+      setLatestTrace(data.trace);
+      setLinks((prev) => prev.filter((item) => item.shortCode !== shortCode));
+      setLatestLink((prev) => (prev?.shortCode === shortCode ? null : prev));
+      void fetchAnalytics();
+    } catch {
+      // Handled gracefully if backend is temporarily unreachable
+    }
   }
 
   async function handleEvictCacheKey(shortCode: string) {
-    const res = await fetch(
-      `/api/cache/evict/${encodeURIComponent(shortCode)}`,
-      { method: 'POST' },
-    );
-    if (!res.ok) return;
-    const data = (await res.json()) as { cluster: ClusterState };
-    setCluster(data.cluster);
-    setLinks((prev) =>
-      prev.map((item) =>
-        item.shortCode === shortCode ? { ...item, cachedInRedis: false } : item,
-      ),
-    );
-    setLatestLink((prev) =>
-      prev?.shortCode === shortCode ? { ...prev, cachedInRedis: false } : prev,
-    );
+    try {
+      const res = await fetch(
+        `/api/cache/evict/${encodeURIComponent(shortCode)}`,
+        { method: 'POST' },
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as { cluster: ClusterState };
+      setCluster(data.cluster);
+      setLinks((prev) =>
+        prev.map((item) =>
+          item.shortCode === shortCode
+            ? { ...item, cachedInRedis: false }
+            : item,
+        ),
+      );
+      setLatestLink((prev) =>
+        prev?.shortCode === shortCode
+          ? { ...prev, cachedInRedis: false }
+          : prev,
+      );
+    } catch {
+      // Handled gracefully if backend is temporarily unreachable
+    }
   }
 
   return (

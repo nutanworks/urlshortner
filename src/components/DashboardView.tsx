@@ -4,6 +4,7 @@ import {
   Copy,
   ExternalLink,
   Search,
+  Share2,
   Trash2,
   Zap,
 } from 'lucide-react';
@@ -288,6 +289,7 @@ export function DashboardView({
                             type="button"
                             onClick={() => handleCopy(link.shortCode)}
                             aria-label={`Copy short link for ${link.shortCode}`}
+                            title="Copy shareable redirect link"
                             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700/80 bg-[#141A29] text-slate-300 transition-colors hover:border-slate-600 hover:text-slate-100"
                           >
                             {copiedCode === link.shortCode ? (
@@ -296,6 +298,19 @@ export function DashboardView({
                               <Copy className="h-3.5 w-3.5" aria-hidden="true" />
                             )}
                           </button>
+
+                          <a
+                            href={`https://wa.me/?text=${encodeURIComponent(
+                              `${typeof window !== 'undefined' ? window.location.origin : ''}/${link.shortCode}`,
+                            )}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label={`Share ${link.shortCode} on WhatsApp`}
+                            title="Share on WhatsApp"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700/80 bg-[#141A29] text-emerald-300 transition-colors hover:border-emerald-500/60 hover:bg-emerald-500/10"
+                          >
+                            <Share2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          </a>
 
                           <button
                             type="button"

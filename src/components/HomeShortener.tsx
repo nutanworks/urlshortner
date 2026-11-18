@@ -7,6 +7,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  Share2,
   Zap,
 } from 'lucide-react';
 import type { ClusterState, RequestTrace, ShortLinkRecord } from '../types';
@@ -169,6 +170,27 @@ export function HomeShortener({
     }
   }
 
+  const isDevPreview =
+    typeof window !== 'undefined' &&
+    window.location.hostname.startsWith('ais-dev-');
+
+  async function handleNativeShare() {
+    if (!latestLink) return;
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({
+          title: `Short.ly · ${latestLink.shortUrl}`,
+          text: `Open ${latestLink.longUrl} via Short.ly`,
+          url: liveShortHref,
+        });
+        return;
+      } catch {
+        // User cancelled or share unavailable; fall back to copy
+      }
+    }
+    await handleCopy();
+  }
+
   return (
     <div className="space-y-14">
       {/* Hero Shortener Section */}
@@ -313,12 +335,22 @@ export function HomeShortener({
                   </a>
                 </div>
 
-                <p
-                  className="truncate text-sm text-slate-400"
-                  title={latestLink.longUrl}
-                >
-                  Target: {latestLink.longUrl}
-                </p>
+                <div className="space-y-1 text-xs sm:text-sm">
+                  <p className="truncate font-mono text-xs text-violet-300" title={liveShortHref}>
+                    Shareable URL: {liveShortHref}
+                  </p>
+                  {isDevPreview && (
+                    <p className="text-xs text-slate-400">
+                      Preview note: Use your published Shared App URL (<span className="font-mono text-slate-300">ais-pre-...</span>) when sharing with others on WhatsApp.
+                    </p>
+                  )}
+                  <p
+                    className="truncate text-slate-400"
+                    title={latestLink.longUrl}
+                  >
+                    Target: {latestLink.longUrl}
+                  </p>
+                </div>
 
                 <div className="flex flex-wrap items-center gap-2.5 pt-1">
                   <button
@@ -337,6 +369,25 @@ export function HomeShortener({
                         <span>Copy Link</span>
                       </>
                     )}
+                  </button>
+
+                  <a
+                    href={`https://wa.me/?text=${encodeURIComponent(liveShortHref)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2 text-xs font-semibold text-emerald-200 transition-colors hover:bg-emerald-500/20 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                  >
+                    <Share2 className="h-3.5 w-3.5 text-emerald-300" aria-hidden="true" />
+                    <span>Share on WhatsApp</span>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={handleNativeShare}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-[#161C2E] px-3.5 py-2 text-xs font-semibold text-slate-200 transition-colors hover:border-slate-600 hover:bg-slate-800 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+                  >
+                    <Share2 className="h-3.5 w-3.5 text-slate-300" aria-hidden="true" />
+                    <span>Share</span>
                   </button>
 
                   <button
