@@ -7,7 +7,11 @@ import {
   HomeShortener,
   type ShortenFormOptions,
 } from './components/HomeShortener';
-import { Navbar, type ActiveView } from './components/Navbar';
+import {
+  SidebarNav,
+  TopWorkspaceBar,
+  type ActiveView,
+} from './components/Navbar';
 import type {
   AnalyticsSummary,
   AuthUser,
@@ -16,6 +20,11 @@ import type {
   ShortLinkRecord,
   ShortenResponse,
 } from './types';
+import {
+  THEME_STORAGE_KEY,
+  resolveInitialTheme,
+  type ThemeMode,
+} from './lib/theme';
 
 function viewFromPath(pathname: string): ActiveView {
   const clean = pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
@@ -39,6 +48,24 @@ export default function App() {
       : 'login',
   );
   const [databaseEngine, setDatabaseEngine] = useState<string>('MongoDB Atlas');
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    if (typeof window === 'undefined') return 'light';
+    try {
+      return resolveInitialTheme(window.localStorage.getItem(THEME_STORAGE_KEY));
+    } catch {
+      return 'light';
+    }
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('dark', theme === 'dark');
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Ignore storage quota or privacy restrictions
+    }
+  }, [theme]);
 
   const [activeView, setActiveView] = useState<ActiveView>(() =>
     typeof window !== 'undefined' ? viewFromPath(window.location.pathname) : 'home',
@@ -402,10 +429,10 @@ export default function App() {
 
   if (authChecking) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#080A10] text-slate-400">
-        <div className="space-y-2 text-center">
-          <p className="text-sm font-medium text-slate-200">Short.ly</p>
-          <p className="text-xs text-slate-500">Checking active session...</p>
+      <div className="flex min-h-screen items-center justify-center bg-[#F8FAFC] text-slate-600 dark:bg-[#090D16] dark:text-slate-400">
+        <div className="space-y-1.5 text-center">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Short.ly</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Verifying workspace session...</p>
         </div>
       </div>
     );
@@ -418,73 +445,89 @@ export default function App() {
         onModeChange={handleAuthModeChange}
         onAuthSuccess={handleAuthSuccess}
         databaseEngine={databaseEngine}
+        theme={theme}
+        onThemeChange={setTheme}
       />
     );
   }
 
   return (
-    <div className="flex min-h-screen flex-col text-slate-100">
-      <Navbar
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 dark:bg-[#090D16] dark:text-slate-100">
+      <SidebarNav
         activeView={activeView}
         user={user}
+        databaseEngine={cluster?.databaseEngine ?? databaseEngine}
         onNavigate={navigateTo}
         onLogout={handleLogout}
       />
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
-        {activeView === 'home' && (
-          <HomeShortener
-            urlInputRef={urlInputRef}
-            user={user}
-            latestLink={latestLink}
-            latestTrace={latestTrace}
-            cluster={cluster}
-            isSubmitting={isSubmitting}
-            errorMessage={errorMessage}
-            onShorten={handleShorten}
-            onSimulateLookup={handleSimulateLookup}
-            onRefreshCluster={refreshClusterOnly}
-          />
-        )}
+      <div className="flex min-h-screen flex-col lg:pl-64">
+        <TopWorkspaceBar
+          activeView={activeView}
+          user={user}
+          theme={theme}
+          onThemeChange={setTheme}
+          onNavigate={navigateTo}
+          onFocusCreate={handleFocusCreate}
+          onLogout={handleLogout}
+        />
 
-        {activeView === 'dashboard' && (
-          <DashboardView
-            user={user}
-            links={links}
-            isLoading={isLoadingLinks}
-            onEdit={handleEditLink}
-            onDelete={handleDelete}
-            onSimulateLookup={handleSimulateLookup}
-            onGoToShortener={handleFocusCreate}
-          />
-        )}
+        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          {activeView === 'home' && (
+            <HomeShortener
+              urlInputRef={urlInputRef}
+              user={user}
+              analytics={analytics}
+              latestLink={latestLink}
+              latestTrace={latestTrace}
+              cluster={cluster}
+              isSubmitting={isSubmitting}
+              errorMessage={errorMessage}
+              onShorten={handleShorten}
+              onSimulateLookup={handleSimulateLookup}
+              onRefreshCluster={refreshClusterOnly}
+            />
+          )}
 
-        {activeView === 'analytics' && (
-          <AnalyticsView
-            analytics={analytics}
-            isLoading={isLoadingAnalytics}
-          />
-        )}
+          {activeView === 'dashboard' && (
+            <DashboardView
+              user={user}
+              links={links}
+              isLoading={isLoadingLinks}
+              onEdit={handleEditLink}
+              onDelete={handleDelete}
+              onSimulateLookup={handleSimulateLookup}
+              onGoToShortener={handleFocusCreate}
+            />
+          )}
 
-        {activeView === 'cluster' && (
-          <DistributedCluster
-            cluster={cluster}
-            compact={false}
-            canEvict={user.role === 'admin'}
-            onRefresh={refreshClusterOnly}
-            onEvictCacheKey={handleEvictCacheKey}
-          />
-        )}
-      </main>
+          {activeView === 'analytics' && (
+            <AnalyticsView
+              analytics={analytics}
+              isLoading={isLoadingAnalytics}
+            />
+          )}
 
-      <footer className="border-t border-slate-800/80 py-5 text-center text-xs text-slate-500">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 sm:px-6">
-          <span>Short.ly Distributed URL Shortener</span>
-          <span className="font-mono">
-            {cluster?.databaseEngine ?? databaseEngine} · Base62 · Sharding (A–M / N–Z) · Redis Cache · 3-Node Round Robin
-          </span>
-        </div>
-      </footer>
+          {activeView === 'cluster' && (
+            <DistributedCluster
+              cluster={cluster}
+              compact={false}
+              canEvict={user.role === 'admin'}
+              onRefresh={refreshClusterOnly}
+              onEvictCacheKey={handleEvictCacheKey}
+            />
+          )}
+        </main>
+
+        <footer className="border-t border-slate-200 bg-white py-4 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 sm:px-6 lg:px-8">
+            <span>Short.ly Enterprise Link Management</span>
+            <span className="font-mono text-slate-400 dark:text-slate-500">
+              {cluster?.databaseEngine ?? databaseEngine} · Base62 · A–M / N–Z Sharding · Redis Cache · 3-Node Round Robin
+            </span>
+          </div>
+        </footer>
+      </div>
     </div>
   );
 }

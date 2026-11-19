@@ -322,7 +322,7 @@ async function resolveShortCode(
 function renderPasswordGateHtml(shortCode: string, errorMsg?: string): string {
   const safeCode = shortCode.replace(/[^a-zA-Z0-9_-]/g, '');
   const safeError = errorMsg
-    ? `<p style="color:#fca5a5;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);padding:10px 12px;border-radius:8px;font-size:13px;margin:0 0 14px;">${errorMsg}</p>`
+    ? `<p style="color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;padding:10px 12px;border-radius:8px;font-size:13px;margin:0 0 14px;">${errorMsg}</p>`
     : '';
   return `<!doctype html>
 <html lang="en">
@@ -331,13 +331,13 @@ function renderPasswordGateHtml(shortCode: string, errorMsg?: string): string {
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Protected Link · Short.ly</title>
   <style>
-    body{margin:0;min-height:100vh;display:grid;place-items:center;background:#080A10;color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px;}
-    .card{width:100%;max-width:400px;background:#0F131E;border:1px solid #1e293b;border-radius:16px;padding:28px;}
-    h1{margin:0 0 8px;font-size:20px;}
-    p.sub{margin:0 0 20px;color:#94a3b8;font-size:14px;line-height:1.5;}
-    label{display:block;font-size:13px;color:#cbd5e1;margin-bottom:6px;}
-    input{width:100%;box-sizing:border-box;height:44px;border-radius:10px;border:1px solid #334155;background:#080A10;color:#f8fafc;padding:0 12px;font-size:14px;margin-bottom:14px;}
-    button{width:100%;height:44px;border:0;border-radius:10px;background:linear-gradient(90deg,#7c3aed,#4f46e5);color:#fff;font-weight:600;font-size:14px;cursor:pointer;}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F8FAFC;color:#0F172A;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px;}
+    .card{width:100%;max-width:400px;background:#FFFFFF;border:1px solid #E2E8F0;border-radius:12px;padding:28px;box-shadow:0 1px 2px rgba(15,23,42,.04);}
+    h1{margin:0 0 8px;font-size:20px;color:#0F172A;}
+    p.sub{margin:0 0 20px;color:#475569;font-size:14px;line-height:1.5;}
+    label{display:block;font-size:12px;font-weight:600;color:#334155;margin-bottom:6px;}
+    input{width:100%;box-sizing:border-box;height:42px;border-radius:8px;border:1px solid #CBD5E1;background:#FFFFFF;color:#0F172A;padding:0 12px;font-size:14px;margin-bottom:14px;}
+    button{width:100%;height:42px;border:0;border-radius:8px;background:#0F172A;color:#FFFFFF;font-weight:600;font-size:14px;cursor:pointer;}
   </style>
 </head>
 <body>
@@ -364,11 +364,11 @@ function renderExpiredHtml(shortCode: string): string {
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Link Expired · Short.ly</title>
   <style>
-    body{margin:0;min-height:100vh;display:grid;place-items:center;background:#080A10;color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px;}
-    .card{width:100%;max-width:420px;background:#0F131E;border:1px solid #1e293b;border-radius:16px;padding:28px;text-align:center;}
-    h1{margin:0 0 8px;font-size:20px;color:#fca5a5;}
-    p{margin:0 0 20px;color:#94a3b8;font-size:14px;line-height:1.5;}
-    a{display:inline-block;padding:10px 18px;border-radius:10px;background:#4f46e5;color:#fff;text-decoration:none;font-size:14px;font-weight:600;}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F8FAFC;color:#0F172A;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px;}
+    .card{width:100%;max-width:420px;background:#FFFFFF;border:1px solid #E2E8F0;border-radius:12px;padding:28px;text-align:center;box-shadow:0 1px 2px rgba(15,23,42,.04);}
+    h1{margin:0 0 8px;font-size:20px;color:#B91C1C;}
+    p{margin:0 0 20px;color:#475569;font-size:14px;line-height:1.5;}
+    a{display:inline-block;padding:10px 18px;border-radius:8px;background:#0F172A;color:#FFFFFF;text-decoration:none;font-size:13px;font-weight:600;}
   </style>
 </head>
 <body>
