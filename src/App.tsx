@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnalyticsView } from './components/AnalyticsView';
-import { DashboardView } from './components/DashboardView';
+import { AuthView, type AuthMode } from './components/AuthView';
+import { DashboardView, type EditLinkPayload } from './components/DashboardView';
 import { DistributedCluster } from './components/DistributedCluster';
-import { HomeShortener } from './components/HomeShortener';
+import {
+  HomeShortener,
+  type ShortenFormOptions,
+} from './components/HomeShortener';
 import { Navbar, type ActiveView } from './components/Navbar';
 import type {
   AnalyticsSummary,
+  AuthUser,
   ClusterState,
   RequestTrace,
   ShortLinkRecord,
@@ -20,7 +25,21 @@ function viewFromPath(pathname: string): ActiveView {
   return 'home';
 }
 
+function authModeFromPath(pathname: string): AuthMode {
+  const clean = pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+  return clean === 'signup' ? 'signup' : 'login';
+}
+
 export default function App() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [authMode, setAuthMode] = useState<AuthMode>(() =>
+    typeof window !== 'undefined'
+      ? authModeFromPath(window.location.pathname)
+      : 'login',
+  );
+  const [databaseEngine, setDatabaseEngine] = useState<string>('MongoDB Atlas');
+
   const [activeView, setActiveView] = useState<ActiveView>(() =>
     typeof window !== 'undefined' ? viewFromPath(window.location.pathname) : 'home',
   );
@@ -41,7 +60,11 @@ export default function App() {
     async <T,>(url: string, retries = 2): Promise<T | null> => {
       for (let attempt = 0; attempt <= retries; attempt += 1) {
         try {
-          const res = await fetch(url);
+          const res = await fetch(url, { credentials: 'same-origin' });
+          if (res.status === 401) {
+            setUser(null);
+            return null;
+          }
           if (!res.ok) return null;
           return (await res.json()) as T;
         } catch {
@@ -58,6 +81,34 @@ export default function App() {
     [],
   );
 
+  // Hydrate existing session on initial load
+  useEffect(() => {
+    let active = true;
+    async function checkSession() {
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          user: AuthUser | null;
+          databaseEngine?: string;
+        };
+        if (!active) return;
+        if (data.databaseEngine) {
+          setDatabaseEngine(data.databaseEngine);
+        }
+        setUser(data.user);
+      } catch {
+        // Handled cleanly
+      } finally {
+        if (active) setAuthChecking(false);
+      }
+    }
+    void checkSession();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const fetchLinksAndCluster = useCallback(async () => {
     try {
       const data = await fetchGetWithRetry<{
@@ -69,7 +120,7 @@ export default function App() {
       setCluster(data.cluster);
       lastRefreshRef.current = Date.now();
     } catch {
-      // Handled gracefully without unhandled promise rejection
+      // Handled gracefully
     } finally {
       setIsLoadingLinks(false);
     }
@@ -86,7 +137,7 @@ export default function App() {
       setCluster(data.cluster);
       lastRefreshRef.current = Date.now();
     } catch {
-      // Handled gracefully without unhandled promise rejection
+      // Handled gracefully
     } finally {
       setIsLoadingAnalytics(false);
     }
@@ -100,17 +151,22 @@ export default function App() {
       if (!data) return;
       setCluster(data.cluster);
     } catch {
-      // Handled gracefully without unhandled promise rejection
+      // Handled gracefully
     }
   }, [fetchGetWithRetry]);
 
+  // Fetch protected workspace data whenever a user logs in
   useEffect(() => {
+    if (!user) return;
+    setIsLoadingLinks(true);
+    setIsLoadingAnalytics(true);
     void fetchLinksAndCluster();
     void fetchAnalytics();
-  }, [fetchLinksAndCluster, fetchAnalytics]);
+  }, [user, fetchLinksAndCluster, fetchAnalytics]);
 
   // Refresh state when user returns from opening a 301 redirect in another tab
   useEffect(() => {
+    if (!user) return;
     function handleFocus() {
       if (document.visibilityState !== 'visible') return;
       if (Date.now() - lastRefreshRef.current < 2000) return;
@@ -120,12 +176,13 @@ export default function App() {
     }
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [fetchLinksAndCluster, fetchAnalytics]);
+  }, [user, fetchLinksAndCluster, fetchAnalytics]);
 
   // Sync browser back/forward navigation
   useEffect(() => {
     function handlePopState() {
       setActiveView(viewFromPath(window.location.pathname));
+      setAuthMode(authModeFromPath(window.location.pathname));
     }
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -146,6 +203,45 @@ export default function App() {
     }
   }
 
+  function handleAuthModeChange(nextMode: AuthMode) {
+    setAuthMode(nextMode);
+    const targetPath = nextMode === 'signup' ? '/signup' : '/login';
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({}, '', targetPath);
+    }
+  }
+
+  function handleAuthSuccess(loggedInUser: AuthUser) {
+    setUser(loggedInUser);
+    setErrorMessage(null);
+    setLatestLink(null);
+    setLatestTrace(null);
+    setActiveView('home');
+    if (window.location.pathname !== '/') {
+      window.history.pushState({}, '', '/');
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+    } catch {
+      // Ignore network errors during logout
+    }
+    setUser(null);
+    setLinks([]);
+    setAnalytics(null);
+    setCluster(null);
+    setLatestLink(null);
+    setLatestTrace(null);
+    setErrorMessage(null);
+    setAuthMode('login');
+    window.history.pushState({}, '', '/login');
+  }
+
   function handleFocusCreate() {
     navigateTo('home');
     setTimeout(() => {
@@ -153,14 +249,15 @@ export default function App() {
     }, 50);
   }
 
-  async function handleShorten(url: string, customAlias: string) {
+  async function handleShorten(options: ShortenFormOptions): Promise<boolean> {
     setErrorMessage(null);
     setIsSubmitting(true);
     try {
       const res = await fetch('/api/shorten', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, customAlias }),
+        credentials: 'same-origin',
+        body: JSON.stringify(options),
       });
 
       const payload = (await res.json()) as Partial<ShortenResponse> & {
@@ -169,7 +266,7 @@ export default function App() {
 
       if (!res.ok || !payload.link || !payload.trace || !payload.cluster) {
         setErrorMessage(payload.error ?? 'Failed to shorten URL.');
-        return;
+        return false;
       }
 
       setLatestLink(payload.link);
@@ -177,17 +274,58 @@ export default function App() {
       setCluster(payload.cluster);
       setLinks((prev) => [payload.link!, ...prev]);
       void fetchAnalytics();
+      return true;
     } catch {
       setErrorMessage('Network error while contacting Short.ly backend.');
+      return false;
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  async function handleSimulateLookup(shortCode: string) {
+  async function handleEditLink(
+    shortCode: string,
+    payload: EditLinkPayload,
+  ): Promise<string | null> {
+    try {
+      const res = await fetch(`/api/links/${encodeURIComponent(shortCode)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json()) as {
+        link?: ShortLinkRecord;
+        trace?: RequestTrace;
+        cluster?: ClusterState;
+        error?: string;
+      };
+      if (!res.ok || !data.link || !data.cluster) {
+        return data.error ?? 'Failed to update link.';
+      }
+      setCluster(data.cluster);
+      if (data.trace) setLatestTrace(data.trace);
+      setLinks((prev) =>
+        prev.map((item) =>
+          item.shortCode === data.link!.shortCode ? data.link! : item,
+        ),
+      );
+      setLatestLink((prev) =>
+        prev?.shortCode === data.link!.shortCode ? data.link! : prev,
+      );
+      return null;
+    } catch {
+      return 'Network error while updating link.';
+    }
+  }
+
+  async function handleSimulateLookup(shortCode: string, password?: string) {
     try {
       const res = await fetch(`/api/simulate/${encodeURIComponent(shortCode)}`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(password ? { password } : {}),
       });
       if (!res.ok) return;
       const data = (await res.json()) as {
@@ -216,6 +354,7 @@ export default function App() {
     try {
       const res = await fetch(`/api/links/${encodeURIComponent(shortCode)}`, {
         method: 'DELETE',
+        credentials: 'same-origin',
       });
       if (!res.ok) return;
       const data = (await res.json()) as {
@@ -228,7 +367,7 @@ export default function App() {
       setLatestLink((prev) => (prev?.shortCode === shortCode ? null : prev));
       void fetchAnalytics();
     } catch {
-      // Handled gracefully if backend is temporarily unreachable
+      // Handled gracefully
     }
   }
 
@@ -236,7 +375,10 @@ export default function App() {
     try {
       const res = await fetch(
         `/api/cache/evict/${encodeURIComponent(shortCode)}`,
-        { method: 'POST' },
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+        },
       );
       if (!res.ok) return;
       const data = (await res.json()) as { cluster: ClusterState };
@@ -254,22 +396,46 @@ export default function App() {
           : prev,
       );
     } catch {
-      // Handled gracefully if backend is temporarily unreachable
+      // Handled gracefully
     }
+  }
+
+  if (authChecking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#080A10] text-slate-400">
+        <div className="space-y-2 text-center">
+          <p className="text-sm font-medium text-slate-200">Short.ly</p>
+          <p className="text-xs text-slate-500">Checking active session...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <AuthView
+        mode={authMode}
+        onModeChange={handleAuthModeChange}
+        onAuthSuccess={handleAuthSuccess}
+        databaseEngine={databaseEngine}
+      />
+    );
   }
 
   return (
     <div className="flex min-h-screen flex-col text-slate-100">
       <Navbar
         activeView={activeView}
+        user={user}
         onNavigate={navigateTo}
-        onFocusCreate={handleFocusCreate}
+        onLogout={handleLogout}
       />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
         {activeView === 'home' && (
           <HomeShortener
             urlInputRef={urlInputRef}
+            user={user}
             latestLink={latestLink}
             latestTrace={latestTrace}
             cluster={cluster}
@@ -283,8 +449,10 @@ export default function App() {
 
         {activeView === 'dashboard' && (
           <DashboardView
+            user={user}
             links={links}
             isLoading={isLoadingLinks}
+            onEdit={handleEditLink}
             onDelete={handleDelete}
             onSimulateLookup={handleSimulateLookup}
             onGoToShortener={handleFocusCreate}
@@ -302,6 +470,7 @@ export default function App() {
           <DistributedCluster
             cluster={cluster}
             compact={false}
+            canEvict={user.role === 'admin'}
             onRefresh={refreshClusterOnly}
             onEvictCacheKey={handleEvictCacheKey}
           />
@@ -312,7 +481,7 @@ export default function App() {
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 sm:px-6">
           <span>Short.ly Distributed URL Shortener</span>
           <span className="font-mono">
-            Base62 Counter · SQLite Sharding (A–M / N–Z) · In-Memory Redis Cache · 3-Node Round Robin
+            {cluster?.databaseEngine ?? databaseEngine} · Base62 · Sharding (A–M / N–Z) · Redis Cache · 3-Node Round Robin
           </span>
         </div>
       </footer>

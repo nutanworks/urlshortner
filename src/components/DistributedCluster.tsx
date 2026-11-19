@@ -4,6 +4,7 @@ import type { ClusterState } from '../types';
 interface DistributedClusterProps {
   cluster: ClusterState | null;
   compact?: boolean;
+  canEvict?: boolean;
   onRefresh?: () => void;
   onEvictCacheKey?: (shortCode: string) => void;
 }
@@ -11,6 +12,7 @@ interface DistributedClusterProps {
 export function DistributedCluster({
   cluster,
   compact = false,
+  canEvict = false,
   onRefresh,
   onEvictCacheKey,
 }: DistributedClusterProps) {
@@ -41,7 +43,20 @@ export function DistributedCluster({
             Distributed Cluster Topology
           </h2>
           <p className="mt-0.5 text-sm text-slate-400">
-            Round-Robin Load Balancer across 3 server nodes · Range-sharded SQLite (A–M / N–Z) · In-memory Redis cache
+            <span
+              data-testid="database-engine-label"
+              className={
+                cluster.databaseEngine === 'MongoDB Atlas'
+                  ? 'font-medium text-emerald-400'
+                  : 'font-medium text-amber-300'
+              }
+            >
+              {cluster.databaseEngine} ({cluster.databaseName})
+            </span>
+            <span aria-hidden="true" className="mx-1.5 text-slate-600">
+              ·
+            </span>
+            Round-Robin Load Balancer (3 nodes) · Partitioned Shards (A–M / N–Z) · In-memory Redis cache
           </p>
         </div>
         {onRefresh && (
@@ -118,7 +133,7 @@ export function DistributedCluster({
         </div>
       </div>
 
-      {/* Sharded SQLite + In-Memory Redis Cache */}
+      {/* Sharded Storage + In-Memory Redis Cache */}
       <div className="grid gap-4 lg:grid-cols-3">
         {/* DB 1 (A-M) */}
         <div
@@ -226,7 +241,7 @@ export function DistributedCluster({
         </div>
       </div>
 
-      {/* Detailed Cache Inspector & Recent Request Trace Log (shown on full Cluster tab) */}
+      {/* Detailed Cache Inspector & Recent Request Trace Log */}
       {!compact && (
         <div className="grid gap-6 lg:grid-cols-12">
           {/* Cached Keys Inspector */}
@@ -235,7 +250,9 @@ export function DistributedCluster({
               In-Memory Cache Keys
             </h3>
             <p className="mt-1 text-xs text-slate-400">
-              Evict any key to observe a Cache MISS followed by automatic SQLite backfill on next lookup.
+              {canEvict
+                ? 'Admin control: evict any key to observe a Cache MISS and MongoDB backfill on next lookup.'
+                : 'Read-only view of hot keys cached in memory (Admin required to evict).'}
             </p>
             {cluster.cache.keys.length === 0 ? (
               <p className="mt-6 text-xs text-slate-500">
@@ -249,7 +266,7 @@ export function DistributedCluster({
                     className="flex items-center justify-between py-2.5 text-xs"
                   >
                     <span className="font-mono text-slate-200">/{key}</span>
-                    {onEvictCacheKey && (
+                    {canEvict && onEvictCacheKey && (
                       <button
                         type="button"
                         onClick={() => onEvictCacheKey(key)}
@@ -272,7 +289,7 @@ export function DistributedCluster({
               Recent Distributed Request Traces
             </h3>
             <p className="mt-1 text-xs text-slate-400">
-              Every API call and 301 redirect logs its Load Balancer node, Cache decision, and target SQLite Shard.
+              Every API call and 301 redirect logs its Load Balancer node, Cache decision, and target Shard.
             </p>
             {cluster.recentTraces.length === 0 ? (
               <p className="mt-6 text-xs text-slate-500">

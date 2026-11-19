@@ -6,6 +6,9 @@ import {
   getShardForCode,
   normalizeAndValidateUrl,
   validateCustomAlias,
+  detectMaliciousUrl,
+  isLinkExpired,
+  parseUserAgent,
   RoundRobinBalancer,
   SimulatedRedisCache,
 } from './distributed';
@@ -65,12 +68,68 @@ test('normalizeAndValidateUrl validates HTTP/HTTPS URLs and rejects invalid sche
   assert.equal(normalizeAndValidateUrl('   ').ok, false);
 });
 
-test('validateCustomAlias enforces format and blocks reserved system routes', () => {
+test('malicious URL filter blocks phishing, malware, and .exe URLs case-insensitively', () => {
+  assert.equal(detectMaliciousUrl('https://phishing-login.example.com'), 'phishing');
+  assert.equal(detectMaliciousUrl('https://example.com/MALWARE/payload'), 'malware');
+  assert.equal(detectMaliciousUrl('https://cdn.example.com/installer.EXE?v=1'), '.exe');
+  assert.equal(detectMaliciousUrl('https://developer.mozilla.org/en-US/docs'), null);
+
+  const phishing = normalizeAndValidateUrl('https://evil-phishing.net/bank');
+  assert.equal(phishing.ok, false);
+  if (!phishing.ok) assert.match(phishing.error, /phishing/i);
+
+  const malware = normalizeAndValidateUrl('https://bad.site/download-malware');
+  assert.equal(malware.ok, false);
+  if (!malware.ok) assert.match(malware.error, /malware/i);
+
+  const exe = normalizeAndValidateUrl('https://files.example.com/dropper.exe');
+  assert.equal(exe.ok, false);
+  if (!exe.ok) assert.match(exe.error, /\.exe/i);
+});
+
+test('validateCustomAlias enforces format and blocks reserved routes including login/signup', () => {
   assert.equal(validateCustomAlias('my-link').ok, true);
   assert.equal(validateCustomAlias('ab').ok, false);
   assert.equal(validateCustomAlias('bad alias!').ok, false);
   assert.equal(validateCustomAlias('dashboard').ok, false);
   assert.equal(validateCustomAlias('api').ok, false);
+  assert.equal(validateCustomAlias('login').ok, false);
+  assert.equal(validateCustomAlias('signup').ok, false);
+});
+
+test('isLinkExpired evaluates past, future, and null expiry dates accurately', () => {
+  const fixedNow = Date.parse('2026-11-19T12:00:00.000Z');
+  assert.equal(isLinkExpired(null, fixedNow), false);
+  assert.equal(isLinkExpired(undefined, fixedNow), false);
+  assert.equal(isLinkExpired('2026-11-18T12:00:00.000Z', fixedNow), true);
+  assert.equal(isLinkExpired('2026-11-20T12:00:00.000Z', fixedNow), false);
+});
+
+test('parseUserAgent detects device and browser categories', () => {
+  assert.deepEqual(
+    parseUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36',
+    ),
+    { device: 'Desktop', browser: 'Chrome' },
+  );
+  assert.deepEqual(
+    parseUserAgent(
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1',
+    ),
+    { device: 'Mobile', browser: 'Safari' },
+  );
+  assert.deepEqual(
+    parseUserAgent(
+      'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Firefox/126.0',
+    ),
+    { device: 'Tablet', browser: 'Firefox' },
+  );
+  assert.deepEqual(
+    parseUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36 Edg/128.0.0.0',
+    ),
+    { device: 'Desktop', browser: 'Edge' },
+  );
 });
 
 test('RoundRobinBalancer cycles sequentially across Server 1, Server 2, Server 3', () => {

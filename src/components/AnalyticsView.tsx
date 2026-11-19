@@ -56,7 +56,7 @@ export function AnalyticsView({ analytics, isLoading }: AnalyticsViewProps) {
           Analytics & Traffic Telemetry
         </h1>
         <p className="mt-1 text-sm text-slate-400">
-          Aggregated link creation, daily redirect volume, Redis cache efficiency, and shard balance.
+          Aggregated link creation, daily redirect volume, Redis cache efficiency, shard balance, and device/browser breakdown from the clicks collection.
         </p>
       </div>
 
@@ -280,6 +280,79 @@ export function AnalyticsView({ analytics, isLoading }: AnalyticsViewProps) {
               </ul>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Click Telemetry: Device & Browser Breakdown */}
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="rounded-xl border border-slate-800/90 bg-[#0F131E] p-5">
+          <h2 className="text-base font-semibold text-slate-100">
+            Clicks by Device
+          </h2>
+          <p className="mt-0.5 text-xs text-slate-400">
+            Parsed from redirect User-Agent logs in the clicks collection
+          </p>
+          {analytics.deviceBreakdown.length === 0 ? (
+            <p className="mt-5 text-xs text-slate-500">
+              No device events recorded yet.
+            </p>
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {analytics.deviceBreakdown.map((item) => (
+                <li key={item.label} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-slate-200">
+                      {item.label}
+                    </span>
+                    <span className="font-mono text-slate-400 tabular-nums">
+                      {item.count} ({item.percent}%)
+                    </span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800/90">
+                    <div
+                      style={{ width: `${item.percent}%` }}
+                      className="h-full bg-gradient-to-r from-violet-500 to-indigo-500"
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-slate-800/90 bg-[#0F131E] p-5">
+          <h2 className="text-base font-semibold text-slate-100">
+            Clicks by Browser
+          </h2>
+          <p className="mt-0.5 text-xs text-slate-400">
+            Browser distribution across recorded redirect events
+          </p>
+          {analytics.browserBreakdown.length === 0 ? (
+            <p className="mt-5 text-xs text-slate-500">
+              No browser events recorded yet.
+            </p>
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {analytics.browserBreakdown.map((item) => (
+                <li key={item.label} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-slate-200">
+                      {item.label}
+                    </span>
+                    <span className="font-mono text-slate-400 tabular-nums">
+                      {item.count} ({item.percent}%)
+                    </span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800/90">
+                    <div
+                      style={{ width: `${item.percent}%` }}
+                      className="h-full bg-gradient-to-r from-indigo-500 to-blue-500"
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </section>

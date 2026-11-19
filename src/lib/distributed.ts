@@ -19,6 +19,9 @@ const RESERVED_CODES = new Set([
   'dashboard',
   'analytics',
   'cluster',
+  'login',
+  'signup',
+  'logout',
   'system',
   'health',
   'assets',
@@ -26,6 +29,66 @@ const RESERVED_CODES = new Set([
   'static',
   'favicon.ico',
 ]);
+
+/**
+ * SECURITY: Malicious URL blocklist tokens.
+ * Any destination URL containing these tokens (case-insensitive) is blocked.
+ */
+export const BLOCKED_MALICIOUS_PATTERNS = ['phishing', 'malware', '.exe'] as const;
+
+export function detectMaliciousUrl(url: string): string | null {
+  const lower = url.toLowerCase();
+  for (const token of BLOCKED_MALICIOUS_PATTERNS) {
+    if (lower.includes(token)) {
+      return token;
+    }
+  }
+  return null;
+}
+
+/**
+ * Checks whether an optional ISO expiry date string is in the past.
+ */
+export function isLinkExpired(
+  expiryDate: string | null | undefined,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!expiryDate) return false;
+  const parsed = Date.parse(expiryDate);
+  if (Number.isNaN(parsed)) return false;
+  return parsed <= nowMs;
+}
+
+/**
+ * Extracts coarse device and browser labels from an HTTP User-Agent string
+ * for the `clicks` analytics table.
+ */
+export function parseUserAgent(userAgent?: string | null): {
+  device: 'Desktop' | 'Mobile' | 'Tablet';
+  browser: 'Chrome' | 'Firefox' | 'Safari' | 'Edge' | 'Other';
+} {
+  const ua = (userAgent ?? '').toLowerCase();
+
+  let device: 'Desktop' | 'Mobile' | 'Tablet' = 'Desktop';
+  if (/(ipad|tablet|playbook|silk)|(android(?!.*mobi))/i.test(ua)) {
+    device = 'Tablet';
+  } else if (/(iphone|ipod|android.*mobile|windows phone|blackberry|mobile)/i.test(ua)) {
+    device = 'Mobile';
+  }
+
+  let browser: 'Chrome' | 'Firefox' | 'Safari' | 'Edge' | 'Other' = 'Other';
+  if (ua.includes('edg/') || ua.includes('edge/')) {
+    browser = 'Edge';
+  } else if (ua.includes('firefox/') || ua.includes('fxios/')) {
+    browser = 'Firefox';
+  } else if (ua.includes('chrome/') || ua.includes('crios/') || ua.includes('chromium/')) {
+    browser = 'Chrome';
+  } else if (ua.includes('safari/')) {
+    browser = 'Safari';
+  }
+
+  return { device, browser };
+}
 
 /**
  * Encodes a non-negative integer into a Base62 string padded to `minLength`.
@@ -70,9 +133,8 @@ export function generateShortCodeFromCounter(counter: number): string {
 /**
  * DISTRIBUTED CONCEPT: Range-Based Database Sharding
  * Partition key = first character of short_code (case-insensitive):
- *   - A-M (and digits 0-4) -> DB 1 (shard_1_am.db)
- *   - N-Z (and digits 5-9) -> DB 2 (shard_2_nz.db)
- * This splits read/write load horizontally across independent SQLite nodes.
+ *   - A-M (and digits 0-4) -> DB 1 (shard_1_am)
+ *   - N-Z (and digits 5-9) -> DB 2 (shard_2_nz)
  */
 export function getShardForCode(code: string): ShardInfo {
   const firstChar = (code || '').trim().charAt(0).toUpperCase();
@@ -85,7 +147,7 @@ export function getShardForCode(code: string): ShardInfo {
       shardId: 'DB_1',
       label: 'DB 1 (A–M)',
       keyRange: 'A–M',
-      dbFile: 'shard_1_am.db',
+      dbFile: 'shard_1_am (MongoDB)',
     };
   }
 
@@ -93,7 +155,7 @@ export function getShardForCode(code: string): ShardInfo {
     shardId: 'DB_2',
     label: 'DB 2 (N–Z)',
     keyRange: 'N–Z',
-    dbFile: 'shard_2_nz.db',
+    dbFile: 'shard_2_nz (MongoDB)',
   };
 }
 
@@ -130,6 +192,15 @@ export function normalizeAndValidateUrl(
     }
   }
 
+  // Security check: Block malicious URLs containing phishing, malware, or .exe
+  const matchedThreat = detectMaliciousUrl(trimmed);
+  if (matchedThreat) {
+    return {
+      ok: false,
+      error: `Blocked malicious URL: links containing "${matchedThreat}" are not allowed for security reasons.`,
+    };
+  }
+
   const candidate = schemeMatch ? trimmed : `https://${trimmed}`;
 
   try {
@@ -142,7 +213,8 @@ export function normalizeAndValidateUrl(
     }
 
     const host = parsed.hostname;
-    const isIpv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(host) &&
+    const isIpv4 =
+      /^(\d{1,3}\.){3}\d{1,3}$/.test(host) &&
       host.split('.').every((octet) => Number(octet) <= 255);
 
     if (!host || (!isIpv4 && (!host.includes('.') || host.includes('..')))) {
@@ -156,7 +228,10 @@ export function normalizeAndValidateUrl(
       const labels = host.split('.');
       const tld = labels[labels.length - 1];
       const validLabels = labels.every(
-        (label) => /^[a-zA-Z0-9-]+$/.test(label) && !label.startsWith('-') && !label.endsWith('-'),
+        (label) =>
+          /^[a-zA-Z0-9-]+$/.test(label) &&
+          !label.startsWith('-') &&
+          !label.endsWith('-'),
       );
       if (!validLabels || !/^[a-zA-Z]{2,}$/.test(tld)) {
         return {
@@ -166,7 +241,16 @@ export function normalizeAndValidateUrl(
       }
     }
 
-    return { ok: true, url: parsed.toString() };
+    const normalized = parsed.toString();
+    const postThreat = detectMaliciousUrl(normalized);
+    if (postThreat) {
+      return {
+        ok: false,
+        error: `Blocked malicious URL: links containing "${postThreat}" are not allowed for security reasons.`,
+      };
+    }
+
+    return { ok: true, url: normalized };
   } catch {
     return {
       ok: false,
@@ -249,11 +333,13 @@ export class RoundRobinBalancer {
 /**
  * DISTRIBUTED CONCEPT: Redis In-Memory Cache Simulation
  * Simulates a Redis key-value cache using an in-memory dictionary (Map).
- * Reads check the cache first (O(1) lookup) before falling back to SQLite shards.
+ * Reads check the cache first (O(1) lookup) before falling back to DB shards.
  */
 export interface CachedEntry {
   longUrl: string;
   shardId: ShardId;
+  expiryDate: string | null;
+  hasPassword: boolean;
   cachedAt: string;
 }
 
@@ -276,10 +362,17 @@ export class SimulatedRedisCache {
     return this.store.has(shortCode);
   }
 
-  set(shortCode: string, longUrl: string, shardId: ShardId): void {
+  set(
+    shortCode: string,
+    longUrl: string,
+    shardId: ShardId,
+    options?: { expiryDate?: string | null; hasPassword?: boolean },
+  ): void {
     this.store.set(shortCode, {
       longUrl,
       shardId,
+      expiryDate: options?.expiryDate ?? null,
+      hasPassword: Boolean(options?.hasPassword),
       cachedAt: new Date().toISOString(),
     });
   }

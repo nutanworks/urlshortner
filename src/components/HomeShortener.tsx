@@ -3,34 +3,52 @@ import QRCode from 'qrcode';
 import {
   AlertCircle,
   ArrowRight,
+  Calendar,
   Check,
   Copy,
   Download,
   ExternalLink,
+  Lock,
   Share2,
+  ShieldAlert,
+  SlidersHorizontal,
   Zap,
 } from 'lucide-react';
-import type { ClusterState, RequestTrace, ShortLinkRecord } from '../types';
+import type {
+  AuthUser,
+  ClusterState,
+  RequestTrace,
+  ShortLinkRecord,
+} from '../types';
 import {
   normalizeAndValidateUrl,
   validateCustomAlias,
 } from '../lib/distributed';
 import { DistributedCluster } from './DistributedCluster';
 
+export interface ShortenFormOptions {
+  url: string;
+  customAlias: string;
+  expiryDate: string | null;
+  linkPassword: string;
+}
+
 interface HomeShortenerProps {
   urlInputRef: RefObject<HTMLInputElement | null>;
+  user: AuthUser;
   latestLink: ShortLinkRecord | null;
   latestTrace: RequestTrace | null;
   cluster: ClusterState | null;
   isSubmitting: boolean;
   errorMessage: string | null;
-  onShorten: (url: string, customAlias: string) => Promise<void>;
-  onSimulateLookup: (shortCode: string) => Promise<void>;
+  onShorten: (options: ShortenFormOptions) => Promise<boolean>;
+  onSimulateLookup: (shortCode: string, password?: string) => Promise<void>;
   onRefreshCluster: () => void;
 }
 
 export function HomeShortener({
   urlInputRef,
+  user,
   latestLink,
   latestTrace,
   cluster,
@@ -42,6 +60,9 @@ export function HomeShortener({
 }: HomeShortenerProps) {
   const [longUrl, setLongUrl] = useState('');
   const [customAlias, setCustomAlias] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [expiryDate, setExpiryDate] = useState('');
+  const [linkPassword, setLinkPassword] = useState('');
   const [clientError, setClientError] = useState<string | null>(null);
   const [invalidField, setInvalidField] = useState<'url' | 'alias' | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -136,10 +157,25 @@ export function HomeShortener({
 
     setClientError(null);
     setInvalidField(null);
-    await onShorten(urlCheck.url, trimmedAlias);
+    const created = await onShorten({
+      url: urlCheck.url,
+      customAlias: trimmedAlias,
+      expiryDate: expiryDate ? new Date(expiryDate).toISOString() : null,
+      linkPassword: linkPassword.trim(),
+    });
+
+    if (created) {
+      setLongUrl('');
+      setCustomAlias('');
+      setExpiryDate('');
+      setLinkPassword('');
+    }
   }
 
   const displayedError = clientError ?? errorMessage;
+  const isSecurityBlock = Boolean(
+    displayedError && /blocked malicious url/i.test(displayedError),
+  );
 
   async function handleCopy() {
     if (!latestLink) return;
@@ -148,7 +184,6 @@ export function HomeShortener({
       setCopiedCode(latestLink.shortCode);
       setTimeout(() => setCopiedCode(null), 1800);
     } catch {
-      // Fallback selection copy if clipboard permission restricted
       const input = document.createElement('input');
       input.value = liveShortHref;
       document.body.appendChild(input);
@@ -169,10 +204,6 @@ export function HomeShortener({
       setSimulating(false);
     }
   }
-
-  const isDevPreview =
-    typeof window !== 'undefined' &&
-    window.location.hostname.startsWith('ais-dev-');
 
   async function handleNativeShare() {
     if (!latestLink) return;
@@ -197,7 +228,7 @@ export function HomeShortener({
       <section className="mx-auto max-w-4xl pt-4 sm:pt-8">
         <div className="text-center">
           <p className="text-xs sm:text-sm font-medium text-violet-300">
-            Base62 Counter Encoding · Sharded SQLite · In-Memory Redis Cache
+            Signed in as {user.email} · {user.role === 'admin' ? 'Admin Access' : 'Standard User'} · Malicious URL Shield Active
           </p>
           <h1 className="mt-3 text-balance text-4xl font-extrabold tracking-tight text-slate-50 sm:text-5xl lg:text-6xl">
             Paste your{' '}
@@ -206,7 +237,7 @@ export function HomeShortener({
             </span>
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-slate-400">
-            Generate compact links routed across 3 Round-Robin server nodes, cached in memory for sub-millisecond 301 redirects, and partitioned across A–M and N–Z database shards.
+            Generate compact links backed by MongoDB Atlas, routed across 3 Round-Robin server nodes, cached in memory for fast 301 redirects, and partitioned across A–M and N–Z shards.
           </p>
         </div>
 
@@ -249,8 +280,8 @@ export function HomeShortener({
             </button>
           </div>
 
-          {/* Custom Alias Row */}
-          <div className="mt-3.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          {/* Custom Alias & Advanced Toggle Row */}
+          <div className="mt-3.5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               <label
                 htmlFor="custom-alias-input"
@@ -281,10 +312,64 @@ export function HomeShortener({
                 />
               </div>
             </div>
-            <p className="text-xs text-slate-500">
-              Leave blank for automatic Counter + Base62 code generation.
-            </p>
+
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              aria-expanded={showAdvanced}
+              className="inline-flex items-center gap-1.5 self-start sm:self-auto text-xs font-medium text-slate-400 hover:text-violet-300 transition-colors whitespace-nowrap shrink-0"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>
+                {showAdvanced
+                  ? 'Hide Expiry & Password'
+                  : 'Expiry Date & Password (optional)'}
+              </span>
+            </button>
           </div>
+
+          {/* Optional Expiry Date & Link Password Controls */}
+          {showAdvanced && (
+            <div className="mt-4 grid gap-3 border-t border-slate-800/80 pt-4 sm:grid-cols-2">
+              <div>
+                <label
+                  htmlFor="expiry-date-input"
+                  className="flex items-center gap-1.5 text-xs font-medium text-slate-300"
+                >
+                  <Calendar className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+                  <span>Expiry Date (optional)</span>
+                </label>
+                <input
+                  id="expiry-date-input"
+                  type="datetime-local"
+                  value={expiryDate}
+                  onChange={(e) => setExpiryDate(e.target.value)}
+                  className="mt-1.5 h-10 w-full rounded-lg border border-slate-800 bg-[#080A10] px-3 text-xs font-mono text-slate-100 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="link-password-input"
+                  className="flex items-center gap-1.5 text-xs font-medium text-slate-300"
+                >
+                  <Lock className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+                  <span>Link Password (optional)</span>
+                </label>
+                <input
+                  id="link-password-input"
+                  type="password"
+                  value={linkPassword}
+                  onChange={(e) => setLinkPassword(e.target.value)}
+                  placeholder="Protect redirect with password"
+                  className="mt-1.5 h-10 w-full rounded-lg border border-slate-800 bg-[#080A10] px-3 text-xs text-slate-100 placeholder:text-slate-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+                />
+              </div>
+            </div>
+          )}
+
+          <p className="mt-3 text-xs text-slate-500">
+            Security policy: URLs containing <span className="font-mono text-slate-400">phishing</span>, <span className="font-mono text-slate-400">malware</span>, or <span className="font-mono text-slate-400">.exe</span> are automatically blocked.
+          </p>
 
           {displayedError && (
             <div
@@ -292,7 +377,11 @@ export function HomeShortener({
               role="alert"
               className="mt-4 flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3.5 py-2.5 text-sm text-red-200"
             >
-              <AlertCircle className="h-4 w-4 shrink-0 text-red-400" aria-hidden="true" />
+              {isSecurityBlock ? (
+                <ShieldAlert className="h-4 w-4 shrink-0 text-red-400" aria-hidden="true" />
+              ) : (
+                <AlertCircle className="h-4 w-4 shrink-0 text-red-400" aria-hidden="true" />
+              )}
               <span>{displayedError}</span>
             </div>
           )}
@@ -316,6 +405,21 @@ export function HomeShortener({
                   <span>
                     {latestLink.cachedInRedis ? 'Cached in Redis' : 'Cold on Disk'}
                   </span>
+                  {latestLink.hasPassword && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span className="text-amber-300">Password Protected</span>
+                    </>
+                  )}
+                  {latestLink.expiryDate && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span className="font-mono text-slate-300">
+                        Expires{' '}
+                        {new Date(latestLink.expiryDate).toLocaleDateString()}
+                      </span>
+                    </>
+                  )}
                   <span aria-hidden="true">·</span>
                   <span className="font-mono tabular-nums">
                     {latestLink.clicks} clicks
@@ -339,11 +443,6 @@ export function HomeShortener({
                   <p className="truncate font-mono text-xs text-violet-300" title={liveShortHref}>
                     Shareable URL: {liveShortHref}
                   </p>
-                  {isDevPreview && (
-                    <p className="text-xs text-slate-400">
-                      Preview note: Use your published Shared App URL (<span className="font-mono text-slate-300">ais-pre-...</span>) when sharing with others on WhatsApp.
-                    </p>
-                  )}
                   <p
                     className="truncate text-slate-400"
                     title={latestLink.longUrl}
@@ -390,15 +489,17 @@ export function HomeShortener({
                     <span>Share</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={handleTestLookup}
-                    disabled={simulating}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3.5 py-2 text-xs font-semibold text-indigo-200 transition-colors hover:bg-indigo-500/20 disabled:opacity-60 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
-                  >
-                    <Zap className="h-3.5 w-3.5 text-indigo-300" aria-hidden="true" />
-                    <span>{simulating ? 'Routing...' : 'Test 301 Lookup'}</span>
-                  </button>
+                  {!latestLink.hasPassword && (
+                    <button
+                      type="button"
+                      onClick={handleTestLookup}
+                      disabled={simulating}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3.5 py-2 text-xs font-semibold text-indigo-200 transition-colors hover:bg-indigo-500/20 disabled:opacity-60 whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                    >
+                      <Zap className="h-3.5 w-3.5 text-indigo-300" aria-hidden="true" />
+                      <span>{simulating ? 'Routing...' : 'Test 301 Lookup'}</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Live Request Trace Summary */}
@@ -472,10 +573,10 @@ export function HomeShortener({
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <div className="rounded-xl border border-slate-800/90 bg-[#0F131E] p-5">
             <h3 className="text-sm font-semibold text-slate-100">
-              01. Counter + Base62 Encoding
+              01. Malicious Filter + Base62
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-slate-400">
-              Each URL increments an atomic sequence counter and encodes it into a 6-character Base62 identifier (<span className="font-mono text-xs text-slate-300">A–Z, a–z, 0–9</span>) or accepts your custom alias.
+              Every URL is screened against <span className="font-mono text-xs text-slate-300">phishing</span>, <span className="font-mono text-xs text-slate-300">malware</span>, and <span className="font-mono text-xs text-slate-300">.exe</span> before generating a Base62 code or custom alias.
             </p>
           </div>
           <div className="rounded-xl border border-slate-800/90 bg-[#0F131E] p-5">
@@ -483,15 +584,15 @@ export function HomeShortener({
               02. Cache-Aside Redis Lookup
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-slate-400">
-              Redirects first query the in-memory Redis dictionary. Cache hits resolve immediately in O(1); misses query SQLite and warm the cache before serving a <span className="font-mono text-xs text-slate-300">301</span> redirect.
+              Redirects first query the in-memory Redis dictionary. Cache hits resolve immediately in O(1); misses read MongoDB and warm the cache before serving a <span className="font-mono text-xs text-slate-300">301</span> redirect.
             </p>
           </div>
           <div className="rounded-xl border border-slate-800/90 bg-[#0F131E] p-5">
             <h3 className="text-sm font-semibold text-slate-100">
-              03. Horizontal SQLite Sharding
+              03. MongoDB Shards & Telemetry
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-slate-400">
-              Codes starting with <span className="font-mono text-xs text-indigo-300 whitespace-nowrap">A–M</span> partition into <span className="font-mono text-xs text-slate-200 whitespace-nowrap">DB 1</span> while <span className="font-mono text-xs text-blue-300 whitespace-nowrap">N–Z</span> route to <span className="font-mono text-xs text-slate-200 whitespace-nowrap">DB 2</span>, balanced across 3 Round-Robin nodes.
+              Links partition across <span className="font-mono text-xs text-indigo-300 whitespace-nowrap">DB 1 (A–M)</span> and <span className="font-mono text-xs text-blue-300 whitespace-nowrap">DB 2 (N–Z)</span> while each redirect logs device and browser telemetry to the <span className="font-mono text-xs text-slate-200">clicks</span> collection.
             </p>
           </div>
         </div>
@@ -501,6 +602,7 @@ export function HomeShortener({
       <DistributedCluster
         cluster={cluster}
         compact
+        canEvict={user.role === 'admin'}
         onRefresh={onRefreshCluster}
       />
     </div>
